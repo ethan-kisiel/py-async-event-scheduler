@@ -24,6 +24,33 @@ from datetime import timedelta
 from copy import deepcopy
 
 
+def days_until(start_day: int, end_day: int):
+    """
+    walks thru days of the week to get the days
+    until event day
+    """
+
+    days_otw = [0, 1, 2, 3, 4, 5, 6]
+    days = 0
+    current_index = days_otw.index(start_day)
+
+    while current_index != days_otw.index(end_day):
+        days += 1
+        current_index += 1
+        if current_index >= len(days_otw):
+            current_index = 0
+
+    return days
+
+
+# def time_now(time_override=None, tz=None):
+#     if time_override is not None:
+#         return time_override
+#     elif tz is not None:
+#         return datetime.now(tz)
+#     return datetime.now()
+
+
 class Event:
     """
     Represents an event in time
@@ -69,7 +96,14 @@ class Scheduler:
         self.payload = payload
         self.await_payload = await_payload
 
-    async def run(self, recursive: bool, event: Event, *args, **kwargs):
+    async def run(
+        self,
+        recursive: bool,
+        event: Event,
+        start_time_override: datetime | None = None,
+        *args,
+        **kwargs,
+    ):
         """
         parameters:
         - recursive: bool if true will continue to run after each event
@@ -78,34 +112,61 @@ class Scheduler:
         - **kwargs: keyword arguments to pass to the payload
         """
 
-        day_now = datetime.now(event.timezone).weekday()
+        if start_time_override is not None:
+            day_now = start_time_override.weekday()
+        else:
+            day_now = datetime.now(event.timezone).weekday()
 
-        if type(event.days) == int:
+        if isinstance(event.days, int):
             event_day = event.days
         else:
 
             if day_now in event.days:
                 event_day = day_now
+                print(f"day now: {day_now} found in event days: {event.days}")
             else:
                 event_days = deepcopy(event.days)
                 event_days.append(day_now)
                 event_days = list(set(event_days))
-                event_days.sort(reverse=True)
+                event_days.sort()
+                print(event_days)
+                event_day_i = event_days.index(day_now)
+                event_day_i += 1
 
-                event_day = event_days[event_days.index(day_now) - 1]
+                if event_day_i >= len(event_days):
+                    event_day_i = 0
+
+                print(event_day_i)
+                event_day = event_days[event_day_i]
+
+        print(days_until(day_now, event_day))
+
+        time_now = (
+            datetime.now(event.timezone)
+            if start_time_override is None
+            else start_time_override
+        )
 
         event_time = (
-            datetime.now(event.timezone) + timedelta(days=abs(event_day - day_now))
+            time_now + timedelta(days=days_until(day_now, event_day))
         ).replace(hour=event.hour, minute=event.minute, second=0, microsecond=0)
+        print(f"TIME NOW: {time_now}, EVENT_TIME: {event_time}")
 
-        wait_time = (event_time - datetime.now(event.timezone)).total_seconds()
+        wait_time = (event_time - time_now).total_seconds()
+        print(f"Initial wait_time: {(wait_time / 60) / 60}")
+        print(f"Initial event time: {time_now + timedelta(seconds=wait_time)}")
 
         ### CHECK IN CASE THE MEETING HAS PASSED RECENTLY
         if wait_time < 0:
             ## IF WAIT TIME IS LESS THAN 0 AND WE HAVE A SINGLE DAY,
             ## THE NEXT MEETING WILL BE 7 DAYS FROM NOW
-            if type(event.days) == int:
-                event_time = (datetime.now(event.timezone) + timedelta(days=7)).replace(
+            time_now = (
+                datetime.now(event.timezone)
+                if start_time_override is None
+                else start_time_override
+            )
+            if isinstance(event.days, int):
+                event_time = (time_now + timedelta(days=7)).replace(
                     hour=event.hour, minute=event.minute, second=0, microsecond=0
                 )
             ## IF WAIT TIME IS LESS THAN 0 AND THERE ARE MULTIPLE MEETING
@@ -114,17 +175,34 @@ class Scheduler:
                 event_days = deepcopy(event.days)
                 event_days.append(day_now)
                 event_days = list(set(event_days))
-                event_days.sort(reverse=True)
+                event_days.sort()
+                event_day_i = event_days.index(day_now)
+                event_day_i += 1
 
-                event_day = event_days[event_days.index(day_now) - 1]
-                event_time = (
+                if event_day_i >= len(event_days):
+                    event_day_i = 0
+
+                event_day = event_days[event_day_i]
+                print(f"event day after adding 1 day: {event_day}")
+
+                time_now = (
                     datetime.now(event.timezone)
-                    + timedelta(days=abs(event_day - day_now))
+                    if start_time_override is None
+                    else start_time_override
+                )
+
+                event_time = (
+                    time_now + timedelta(days=days_until(day_now, event_day))
                 ).replace(hour=event.hour, minute=event.minute, second=0, microsecond=0)
 
-        wait_time = (event_time - datetime.now(event.timezone)).total_seconds()
+        time_now = (
+            datetime.now(event.timezone)
+            if start_time_override is None
+            else start_time_override
+        )
+        wait_time = (event_time - time_now).total_seconds()
 
-        print(wait_time)
+        print(f"final event time {time_now + timedelta(seconds=wait_time)}")
 
         await sleep(wait_time)
 
